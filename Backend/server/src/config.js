@@ -25,6 +25,9 @@ module.exports = {
   SEED_PASSWORD: env("SEED_PASSWORD", "Password@123"),
   EXPIRY_CRON: env("EXPIRY_CRON", "0 * * * *"),
   // Secret: only read from .env, never hard-coded here.
-  GEMINI_API_KEY: env("GEMINI_API_KEY", ""),
+  GEMINI_API_KEY: env(
+    "GEMINI_API_KEY",
+    "",
+  ),
   GEMINI_MODEL: env("GEMINI_MODEL", "gemini-3.5-flash"),
 };

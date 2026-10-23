@@ -125,6 +125,8 @@ function staffView({ app, docs, evaluation, corrections, cfg, deadline }) {
       at: c.created_at,
     })),
     maker: app.recommendation ? app.recommendation.by_username : null,
+    // Only shown while it belongs to the current rules run.
+    ai_summary: app.ai_summary && evaluation && app.ai_summary.evaluation_run === evaluation.run_no ? app.ai_summary : null,
     recommendation: app.recommendation,
     checker_decision: app.checker_decision,
     account: app.account && (app.account.account_number || app.account.error) ? app.account : null,

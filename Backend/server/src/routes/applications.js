@@ -21,7 +21,9 @@ const { saveFile, sha256, isValidUtf8 } = require('../services/storage');
 const { audit } = require('../services/audit');
 const { todayIST } = require('../utils/dates');
 const { maskPan } = require('../utils/mask');
-const { conflict, notFound, unprocessable, forbidden } = require('../utils/httpError');
+const { conflict, notFound, unprocessable, forbidden, HttpError } = require('../utils/httpError');
+const gemini = require('../ai/gemini');
+const reviewSummary = require('../ai/reviewSummary');
 const { STORAGE_DIR } = require('../config');
 
 const router = express.Router();
@@ -211,6 +213,52 @@ router.post('/:id/submit', requireRole('APPLICANT'), async (req, res) => {
   const cfg = await getRulesConfig();
   const docs = await Document.find({ application_id: done.application_id }).sort({ round: 1, doc_id: 1 });
   res.json(applicantView(done, docs, workflow.resubmissionDeadline(done, cfg)));
+});
+
+// ---------------------------------------------------------------------------
+// AI-5 reviewer summary (staff only). Lists the discrepancies of a REVIEW case; never a decision.
+// The result is stored for the current rules run, so it is generated once per run.
+// ---------------------------------------------------------------------------
+
+router.post('/:id/ai-summary', requireRole('KYC_OFFICER', 'COMPLIANCE_OFFICER'), async (req, res) => {
+  const app = await loadApplicationFor(req.user, req.params.id);
+  if (app.decision !== 'REVIEW') throw conflict('An AI summary is only written for cases whose rules decision is REVIEW');
+  if (!gemini.isConfigured()) throw new HttpError(503, 'AI is not configured (GEMINI_API_KEY is missing)');
+  const evaluation = app.last_evaluation ? await Evaluation.findById(app.last_evaluation).lean() : null;
+  if (!evaluation) throw conflict('The rules have not run for this case yet');
+
+  if (app.ai_summary && app.ai_summary.evaluation_run === evaluation.run_no && !req.query.refresh) {
+    return res.json({ ai_summary: app.ai_summary, cached: true });
+  }
+
+  const cfg = await getRulesConfig();
+  const docs = await Document.find(workflow.activeDocsQuery(app)).sort({ doc_id: 1 });
+  const caseData = reviewSummary.buildCaseData(app, evaluation, docs, Number(cfg.min_field_confidence));
+  let out;
+  try {
+    out = await reviewSummary.writeSummary(caseData);
+  } catch (err) {
+    await audit({ application_id: app.application_id, action: 'AI_SUMMARY_FAILED', user: req.user, details: { model: gemini.model(), error: err.message } });
+    throw new HttpError(502, `AI summary could not be generated: ${err.message}`);
+  }
+
+  const summary = {
+    text: out.text,
+    model: gemini.model(),
+    prompt_version: reviewSummary.PROMPT_VERSION,
+    evaluation_run: evaluation.run_no,
+    generated_at: new Date(),
+    by_username: req.user.username,
+  };
+  // Direct update: the summary is not a workflow change, so it does not bump the case version.
+  await Application.updateOne({ _id: app._id }, { $set: { ai_summary: summary } });
+  await audit({
+    application_id: app.application_id,
+    action: 'AI_SUMMARY_GENERATED',
+    user: req.user,
+    details: { model: summary.model, prompt_version: summary.prompt_version, evaluation_run: summary.evaluation_run, words: out.words },
+  });
+  res.json({ ai_summary: summary, cached: false });
 });
 
 // ---------------------------------------------------------------------------

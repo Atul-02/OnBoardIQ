@@ -133,6 +133,9 @@ export default function CaseView() {
         </div>
       </div>
 
+      {/* ---- AI-5 reviewer summary (REVIEW cases only) ---- */}
+      {c.decision === 'REVIEW' && <AiSummary c={c} />}
+
       {/* ---- Declared details + screening ---- */}
       <div className="grid-2 mt">
         <div className="card">
@@ -375,6 +378,62 @@ function Screening({ title, hit, declaredDob }) {
   );
 }
 
+// Who produced a value: the officer (corrected) or the AI extractor. Mock values get no badge.
+function SourceBadge({ source }) {
+  if (source === 'OFFICER') return <span className="badge purple">OFFICER</span>;
+  if (source === 'AI') return <span className="badge blue">AI</span>;
+  return null;
+}
+
+// AI-5: short AI-generated list of the case's discrepancies. Generated on request, once per rules run.
+function AiSummary({ c }) {
+  const [summary, setSummary] = useState(c.ai_summary);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => setSummary(c.ai_summary), [c.ai_summary]);
+
+  const generate = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api.post(`/applications/${c.application_id}/ai-summary`, {});
+      setSummary(res.ai_summary);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card mt">
+      <div className="card-head">
+        <h2>
+          Reviewer summary <span className="badge blue">AI-generated</span>
+        </h2>
+        {!summary && (
+          <button className="secondary small" onClick={generate} disabled={busy}>
+            {busy ? 'Generating…' : 'Generate AI summary'}
+          </button>
+        )}
+      </div>
+      <Alert>{error}</Alert>
+      {summary ? (
+        <>
+          <p style={{ margin: 0 }}>{summary.text}</p>
+          <p className="small muted" style={{ marginBottom: 0 }}>
+            {summary.model} · {summary.prompt_version} · rules run #{summary.evaluation_run} · {fmtDateTime(summary.generated_at)}. Lists discrepancies
+            only, not a recommendation. Check the rule results below before deciding.
+          </p>
+        </>
+      ) : (
+        !error && <p className="muted" style={{ margin: 0 }}>A short AI-written list of this case's discrepancies, made only from the rule results and extracted values.</p>
+      )}
+    </div>
+  );
+}
+
 function ExtractedFields({ doc, declared, usedAs, onCorrect }) {
   const ex = doc.extraction;
   if (!ex) return <div className="empty">Not extracted yet.</div>;
@@ -382,7 +441,8 @@ function ExtractedFields({ doc, declared, usedAs, onCorrect }) {
   return (
     <>
       <p className="small muted" style={{ marginTop: 0 }}>
-        {ex.provider} · {ex.extractor_version} · {fmtDateTime(ex.extracted_at)}
+        {ex.provider === 'ai' ? <span className="badge blue">AI extraction</span> : <span className="badge grey">Mock extraction</span>}{' '}
+        {ex.extractor_version} · {fmtDateTime(ex.extracted_at)}
         {usedAs.length > 0 && <> · used as <b>{usedAs.join(', ')}</b></>}
       </p>
       {ex.error && <Alert>Extraction failed: {ex.error}</Alert>}
@@ -401,7 +461,7 @@ function ExtractedFields({ doc, declared, usedAs, onCorrect }) {
             <tr className={dt.low_confidence ? 'low' : ''}>
               <td>Document type</td>
               <td>
-                {label(DOC_TYPE_LABELS, dt.value)} {dt.source === 'OFFICER' && <span className="badge purple">OFFICER</span>}
+                {label(DOC_TYPE_LABELS, dt.value)} <SourceBadge source={dt.source} />
               </td>
               <td className="mono">{dt.confidence !== undefined ? Number(dt.confidence).toFixed(2) : '—'}</td>
               <td>
@@ -423,7 +483,7 @@ function ExtractedFields({ doc, declared, usedAs, onCorrect }) {
                 <tr key={f.field_name} className={f.low_confidence ? 'low' : ''}>
                   <td>{label(FIELD_LABELS, f.field_name)}</td>
                   <td className="mono">
-                    {f.value || <span className="muted">empty</span>} {f.source === 'OFFICER' && <span className="badge purple">OFFICER</span>}
+                    {f.value || <span className="muted">empty</span>} <SourceBadge source={f.source} />
                   </td>
                   <td className="mono">{Number(f.confidence).toFixed(2)}</td>
                   <td className="mono">

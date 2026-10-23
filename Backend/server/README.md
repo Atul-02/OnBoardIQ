@@ -80,4 +80,22 @@ server/
 - **Audit trail**: insert-only; the Mongoose model throws on any update or delete, and no route exposes them.
 - **Masking**: PAN masked (ZZKXXXXX4Q) in lists, queues and the audit CSV export; only the last 4 Aadhaar digits are accepted (12 digits → 422).
 - **Dashboard rates** use the first rules decision: straight-through = AUTO_APPROVED ÷ decided, review/reject = first decision REVIEW/REJECT ÷ decided.
-- **AI provider**: `EXTRACTION_PROVIDER=ai` is wired in but the extractor itself is not built yet; it fails safely (confidence 0 → REVIEW).
+- **AI provider**: see "AI (Gemini)" below.
+
+## AI (Gemini)
+
+Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in `.env`. The key is read only from `.env`, never from code.
+
+| Feature | How to use | Code |
+|---|---|---|
+| AI extraction (AI-1/2/3) | `EXTRACTION_PROVIDER=ai`, restart the API. New uploads are classified and extracted by Gemini; values show with an **AI** badge on the case page. | `src/extraction/aiProvider.js`, `src/ai/gemini.js` |
+| Reviewer summary (AI-5) | Case page of a REVIEW case → **Generate AI summary** (`POST /api/v1/applications/:id/ai-summary`). Works with either provider. | `src/ai/reviewSummary.js` |
+
+Guardrails
+- The AI never decides: it only supplies doc_type and fields with confidence; the rules engine decides.
+- Prompt injection: text that tries to instruct an AI is classified OTHER without calling the LLM; document text is passed inside `<document>` delimiters and the output must match a JSON schema.
+- Our code validates and normalises every value (dates, PAN, pincode, Aadhaar last 4 only), fixes OCR confusions, and sets the confidence itself (lower when a correction was needed or the value is not in the text).
+- On failure or timeout (10 s per document) the document gets OTHER / 0.00 → REVIEW (`LOW_EXTRACTION_CONFIDENCE`).
+- The summary is ≤ 80 words, labelled AI-generated, and rejected if it mentions a decision. Prompts are never logged; the model and prompt version are stored with every extraction and summary.
+
+Free-tier keys allow about 5 requests per minute. One application = 3 extraction calls, so keep `npm run seed` and the batch on the mock provider.

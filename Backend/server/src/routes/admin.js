@@ -16,6 +16,18 @@ router.get('/occupations', async (req, res) => {
   res.json(await Occupation.find({}, { _id: 0, __v: 0 }).sort({ occupation_code: 1 }).lean());
 });
 
+// --- Which extraction provider / AI model is active (no secrets) ---
+router.get('/ai/status', requireRole('KYC_OFFICER', 'COMPLIANCE_OFFICER'), (req, res) => {
+  const { EXTRACTION_PROVIDER, GEMINI_MODEL, GEMINI_API_KEY } = require('../config');
+  const { getProvider } = require('../extraction');
+  res.json({
+    extraction_provider: EXTRACTION_PROVIDER,
+    extractor_version: getProvider().VERSION,
+    gemini_model: GEMINI_MODEL,
+    gemini_configured: !!GEMINI_API_KEY,
+  });
+});
+
 // --- Rules configuration ---
 router.get('/config', requireRole('KYC_OFFICER', 'COMPLIANCE_OFFICER'), async (req, res) => {
   const cfg = await Config.findOne({ key: 'rules' }).lean();

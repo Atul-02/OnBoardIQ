@@ -261,6 +261,36 @@ function Watchlist({ kind }) {
 }
 
 // ---------------------------------------------------------------------------
+// Which extraction provider is active. It is switched with EXTRACTION_PROVIDER in the backend .env.
+
+function AiStatus() {
+  const [s, setS] = useState(null);
+  useEffect(() => {
+    api.get('/ai/status').then(setS).catch(() => setS(null));
+  }, []);
+  if (!s) return null;
+  return (
+    <div className="card">
+      <h2>AI status</h2>
+      <dl className="kv">
+        <dt>Extraction provider</dt>
+        <dd>
+          <span className={`badge ${s.extraction_provider === 'ai' ? 'blue' : 'grey'}`}>{s.extraction_provider}</span>{' '}
+          <span className="mono small">{s.extractor_version}</span>
+        </dd>
+        <dt>Gemini model</dt>
+        <dd>
+          {s.gemini_model} {s.gemini_configured ? <span className="badge green">key set</span> : <span className="badge red">no key</span>}
+        </dd>
+      </dl>
+      <p className="small muted" style={{ marginBottom: 0 }}>
+        Change <span className="mono">EXTRACTION_PROVIDER</span> (mock / ai) in the backend .env and restart the API. The AI reviewer summary works with either provider.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Re-screen open cases and run the resubmission expiry job on demand.
 
 function Jobs() {
@@ -297,6 +327,7 @@ function Jobs() {
   return (
     <>
       <Alert>{error}</Alert>
+      <AiStatus />
       <div className="grid-2">
         <div className="card">
           <h2>Re-screen open cases</h2>

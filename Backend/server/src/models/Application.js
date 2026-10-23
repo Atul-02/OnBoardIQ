@@ -77,6 +77,15 @@ const applicationSchema = new mongoose.Schema(
     recommendation: { type: actionSchema, default: null },
     checker_decision: { type: actionSchema, default: null },
 
+    // AI-5 reviewer summary (AI-generated, never a decision). Kept per rules run.
+    ai_summary: {
+      type: new mongoose.Schema(
+        { text: String, model: String, prompt_version: String, evaluation_run: Number, generated_at: Date, by_username: String },
+        { _id: false }
+      ),
+      default: null,
+    },
+
     // Core banking
     account: {
       customer_id: String,

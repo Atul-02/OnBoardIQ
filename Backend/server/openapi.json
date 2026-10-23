@@ -1,0 +1,285 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "OnboardIQ API",
+    "version": "1.0.0",
+    "description": "KYC onboarding backend for Deccan Digital Bank (fictional). Synthetic data only.\n\nLog in with POST /api/v1/auth/login, then click Authorize and paste the token.\n\nSeeded users (password from SEED_PASSWORD, default Password@123): officer1 [U1], officer2 [U3] (KYC_OFFICER); checker1 [U2], checker2 [U4] (COMPLIANCE_OFFICER); supervisor1 [U5] (both roles); applicant1 (owns the 60 sample applications), applicant2.\n\nAll errors are JSON: { error, fields?: [{ field, message }] }. 401 = not logged in, 403 = role/maker-checker, 404 = not found or not yours, 409 = wrong status or concurrent change, 422 = validation."
+  },
+  "servers": [{ "url": "http://localhost:4000" }],
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "serviceKey": { "type": "apiKey", "in": "header", "name": "x-service-key" }
+    },
+    "parameters": {
+      "appId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "A2000004" }, "description": "application_id" },
+      "docId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "Document id (random, unguessable). Take it from documents[].id in the application view." }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "fields": { "type": "array", "items": { "type": "object", "properties": { "field": { "type": "string" }, "message": { "type": "string" } } } }
+        }
+      },
+      "ApplicationInput": {
+        "type": "object",
+        "required": ["full_name", "dob", "gender", "pan_number", "aadhaar_last4", "mobile", "email", "address", "city", "state", "pincode", "occupation_code", "annual_income", "consent"],
+        "properties": {
+          "application_date": { "type": "string", "example": "2026-03-04", "description": "Optional; defaults to today (IST)" },
+          "full_name": { "type": "string", "example": "Ravi Kumar Sharma" },
+          "dob": { "type": "string", "example": "1990-05-15" },
+          "gender": { "type": "string", "enum": ["M", "F", "O"] },
+          "pan_number": { "type": "string", "example": "ZZKPS1234Q", "pattern": "^[A-Z]{5}[0-9]{4}[A-Z]$" },
+          "aadhaar_last4": { "type": "string", "example": "4821", "pattern": "^[0-9]{4}$", "description": "Only the last 4 digits. A 12-digit value is refused." },
+          "mobile": { "type": "string", "example": "9876500000", "pattern": "^[6-9][0-9]{9}$" },
+          "email": { "type": "string", "example": "ravi@example.com" },
+          "address": { "type": "string", "example": "Flat 12, Lotus Residency, MG Road, Mumbai" },
+          "city": { "type": "string", "example": "Mumbai" },
+          "state": { "type": "string", "example": "Maharashtra" },
+          "pincode": { "type": "string", "example": "400001", "pattern": "^[1-9][0-9]{5}$" },
+          "occupation_code": { "type": "string", "example": "SALARIED_PRIVATE" },
+          "annual_income": { "type": "integer", "example": 900000 },
+          "consent": { "type": "boolean", "example": true, "description": "Must be true" }
+        }
+      },
+      "DecisionResponse": {
+        "type": "object",
+        "properties": {
+          "application_id": { "type": "string" },
+          "decision": { "type": "string", "enum": ["APPROVE", "REVIEW", "REJECT"] },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "name_match_score": { "type": "number", "nullable": true },
+          "risk_category": { "type": "string", "nullable": true },
+          "rekyc_due_date": { "type": "string", "nullable": true },
+          "status": { "type": "string" },
+          "documents": { "type": "array", "items": { "type": "object", "properties": { "doc_id": { "type": "string" }, "declared_doc_type": { "type": "string" }, "doc_type": { "type": "string" }, "confidence": { "type": "number" } } } }
+        }
+      },
+      "ExtractionResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "doc_id": { "type": "string" },
+          "provider": { "type": "string", "example": "mock" },
+          "extractor_version": { "type": "string" },
+          "stored": { "type": "boolean" },
+          "doc_type": { "type": "string" },
+          "confidence": { "type": "number" },
+          "rows": { "type": "array", "items": { "type": "object", "properties": { "doc_id": { "type": "string" }, "field_name": { "type": "string" }, "value": { "type": "string" }, "confidence": { "type": "number" } } } }
+        }
+      }
+    }
+  },
+  "security": [{ "bearer": [] }],
+  "tags": [
+    { "name": "Auth" }, { "name": "Applicant" }, { "name": "Documents" }, { "name": "KYC Officer" },
+    { "name": "Compliance Officer" }, { "name": "Audit" }, { "name": "Configuration & watchlists" }, { "name": "Simulated services" }
+  ],
+  "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": ["Auth"], "summary": "Register as an applicant", "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["username", "password", "full_name"], "properties": { "username": { "type": "string" }, "password": { "type": "string", "minLength": 8 }, "full_name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Token and user" }, "409": { "description": "Username taken" }, "422": { "description": "Validation failed" } }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["Auth"], "summary": "Log in", "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "username": { "type": "string", "example": "officer1" }, "password": { "type": "string", "example": "Password@123" } } } } } },
+        "responses": { "200": { "description": "{ token, user }" }, "401": { "description": "Wrong username or password" } }
+      }
+    },
+    "/api/v1/auth/me": { "get": { "tags": ["Auth"], "summary": "Current user", "responses": { "200": { "description": "User" } } } },
+
+    "/api/v1/applications": {
+      "post": {
+        "tags": ["Applicant"], "summary": "Create an application (status DRAFT)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationInput" } } } },
+        "responses": { "201": { "description": "Applicant view of the new application" }, "403": { "description": "Not an applicant" }, "422": { "description": "Validation failed (field names in fields[])", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      },
+      "get": {
+        "tags": ["Applicant"], "summary": "List applications (applicant: own; staff: all, PAN masked)",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" }, "description": "Staff only. Comma-separated statuses" },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Staff only. Search by application id or name" }
+        ],
+        "responses": { "200": { "description": "List" } }
+      }
+    },
+    "/api/v1/applications/{id}": {
+      "get": {
+        "tags": ["Applicant"], "summary": "View an application",
+        "description": "Applicant (owner only): status timeline, plain-language reasons, documents (no confidences, no watchlist details). Staff: full case incl. per-rule results, screening details, extracted fields with low_confidence flags, corrections, maker/checker info and version.",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "responses": { "200": { "description": "Application" }, "404": { "description": "Not found or not yours" } }
+      }
+    },
+    "/api/v1/applications/{id}/documents": {
+      "post": {
+        "tags": ["Applicant"], "summary": "Upload one document (.txt, UTF-8, max 1 MB)",
+        "description": "doc_id is taken from the file name (D3000023.txt -> D3000023), otherwise generated. Same file (same SHA-256) again returns the existing document with duplicate=true. Allowed in DRAFT and RESUBMISSION_REQUESTED.",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file", "declared_doc_type"], "properties": { "file": { "type": "string", "format": "binary" }, "declared_doc_type": { "type": "string", "enum": ["PAN_CARD", "AADHAAR_CARD", "ELECTRICITY_BILL", "BANK_STATEMENT", "DRIVING_LICENCE"] } } } } } },
+        "responses": { "201": { "description": "Uploaded" }, "200": { "description": "Duplicate (same hash)" }, "409": { "description": "Wrong status / window expired" }, "422": { "description": "Wrong type, encoding, size or declared_doc_type" } }
+      }
+    },
+    "/api/v1/applications/{id}/documents/{documentId}": {
+      "delete": {
+        "tags": ["Applicant"], "summary": "Remove a document before submitting",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }, { "name": "documentId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Removed" } }
+      }
+    },
+    "/api/v1/applications/{id}/submit": {
+      "post": {
+        "tags": ["Applicant"], "summary": "Submit (or resubmit) - runs extraction, rules and routing",
+        "description": "Needs at least 3 documents in the current round. SUBMITTED -> EXTRACTING -> AUTO_APPROVED / PENDING_CHECKER / IN_REVIEW / AUTO_REJECTED. On resubmission the old documents are marked superseded.",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "responses": { "200": { "description": "Applicant view after routing" }, "409": { "description": "Wrong status" }, "422": { "description": "Fewer than 3 documents" } }
+      }
+    },
+    "/api/v1/applications/{id}/decision": {
+      "get": {
+        "tags": ["KYC Officer"], "summary": "Decision API response (section 6.3)",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "responses": { "200": { "description": "Decision", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DecisionResponse" } } } } }
+      }
+    },
+    "/api/v1/applications/{id}/evaluations": {
+      "get": { "tags": ["KYC Officer"], "summary": "All rules-engine runs for the application", "parameters": [{ "$ref": "#/components/parameters/appId" }], "responses": { "200": { "description": "Evaluations" } } }
+    },
+
+    "/api/v1/documents/{id}/content": {
+      "get": {
+        "tags": ["Documents"], "summary": "View document text (officers, compliance, owner). Every view is audited.",
+        "parameters": [{ "$ref": "#/components/parameters/docId" }],
+        "responses": { "200": { "description": "{ doc_id, file_name, text, ... }" }, "404": { "description": "Not found or not yours" } }
+      }
+    },
+    "/api/v1/documents/{id}/extract": {
+      "post": {
+        "tags": ["Documents"], "summary": "Extraction service interface (FR-3)",
+        "description": "Runs the provider chosen by EXTRACTION_PROVIDER (mock | ai). Unknown documents give doc_type OTHER with confidence 0.00. Result is stored only while the application is DRAFT/SUBMITTED/EXTRACTING.",
+        "security": [{ "bearer": [] }, { "serviceKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/docId" }],
+        "responses": { "200": { "description": "Long format", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExtractionResponse" } } } } }
+      }
+    },
+
+    "/api/v1/officer/queue": {
+      "get": { "tags": ["KYC Officer"], "summary": "REVIEW queue (HIGH risk first, then submission time)", "responses": { "200": { "description": "List (PAN masked)" }, "403": { "description": "Not a KYC officer" } } }
+    },
+    "/api/v1/officer/applications/{id}/corrections": {
+      "post": {
+        "tags": ["KYC Officer"], "summary": "Correct an extracted field (re-runs the rules)",
+        "description": "Field gets confidence 1.00 and source OFFICER. Before/after values are audited. If the re-run gives APPROVE the case moves to PENDING_CHECKER with this officer as maker.",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["document_id", "field", "new_value", "reason"], "properties": {
+          "document_id": { "type": "string", "description": "documents[].id from the case view" },
+          "field": { "type": "string", "enum": ["doc_type", "name", "dob", "gender", "pan_number", "aadhaar_last4", "address", "pincode", "document_date", "valid_until"] },
+          "new_value": { "type": "string", "example": "ZZTPS9012Y" },
+          "reason": { "type": "string", "example": "Read from document text" },
+          "version": { "type": "integer", "description": "Optional. Version you were looking at; a stale version gives 409" }
+        } } } } },
+        "responses": { "200": { "description": "New rules result and status" }, "409": { "description": "Not IN_REVIEW or changed by someone else" }, "422": { "description": "Invalid field/value" } }
+      }
+    },
+    "/api/v1/officer/applications/{id}/recommendation": {
+      "post": {
+        "tags": ["KYC Officer"], "summary": "Recommend APPROVE / REJECT / REQUEST_RESUBMISSION",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["action", "comment"], "properties": {
+          "action": { "type": "string", "enum": ["APPROVE", "REJECT", "REQUEST_RESUBMISSION"] },
+          "comment": { "type": "string", "minLength": 10 },
+          "version": { "type": "integer" }
+        } } } } },
+        "responses": { "200": { "description": "PENDING_CHECKER or RESUBMISSION_REQUESTED" }, "409": { "description": "Not IN_REVIEW or concurrent action" }, "422": { "description": "Comment too short" } }
+      }
+    },
+
+    "/api/v1/checker/queue": {
+      "get": { "tags": ["Compliance Officer"], "summary": "PENDING_CHECKER queue with SLA overdue flag", "responses": { "200": { "description": "List" } } }
+    },
+    "/api/v1/checker/applications/{id}/decision": {
+      "post": {
+        "tags": ["Compliance Officer"], "summary": "Checker decision APPROVE / REJECT / SEND_BACK",
+        "description": "APPROVE -> APPROVED and the mock core-banking API returns a customer id and account number. Maker and checker must be different users (403).",
+        "parameters": [{ "$ref": "#/components/parameters/appId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["action", "comment"], "properties": {
+          "action": { "type": "string", "enum": ["APPROVE", "REJECT", "SEND_BACK"] },
+          "comment": { "type": "string" },
+          "version": { "type": "integer" }
+        } } } } },
+        "responses": { "200": { "description": "New status (+ account)" }, "403": { "description": "Same user as maker, or not a compliance officer" }, "409": { "description": "Not PENDING_CHECKER or concurrent action" } }
+      }
+    },
+    "/api/v1/dashboard": {
+      "get": {
+        "tags": ["Compliance Officer"], "summary": "Dashboard figures (FR-10)",
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "example": "2026-03-01" }, "description": "application_date from (inclusive)" },
+          { "name": "to", "in": "query", "schema": { "type": "string", "example": "2026-03-31" }, "description": "application_date to (inclusive)" }
+        ],
+        "responses": { "200": { "description": "Counts by status, straight-through / review / reject rates, top 5 reasons, avg time in review, pending checker items" } }
+      }
+    },
+    "/api/v1/jobs/expire-resubmissions": {
+      "post": { "tags": ["Compliance Officer"], "summary": "Run the 7-day expiry job now (it also runs hourly)", "responses": { "200": { "description": "{ closed }" } } }
+    },
+
+    "/api/v1/applications/{id}/audit": {
+      "get": { "tags": ["Audit"], "summary": "Full audit trail in order (append-only)", "parameters": [{ "$ref": "#/components/parameters/appId" }], "responses": { "200": { "description": "Audit rows" } } }
+    },
+    "/api/v1/applications/{id}/audit/export": {
+      "get": { "tags": ["Audit"], "summary": "Audit trail as CSV (PAN masked)", "parameters": [{ "$ref": "#/components/parameters/appId" }], "responses": { "200": { "description": "text/csv" } } }
+    },
+
+    "/api/v1/occupations": { "get": { "tags": ["Configuration & watchlists"], "summary": "Occupation codes (any logged-in user)", "responses": { "200": { "description": "List" } } } },
+    "/api/v1/config": {
+      "get": { "tags": ["Configuration & watchlists"], "summary": "Rules configuration", "responses": { "200": { "description": "Config JSON" } } },
+      "put": {
+        "tags": ["Configuration & watchlists"], "summary": "Update configuration keys (compliance)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "example": { "name_match_threshold": 0.95 } } } } },
+        "responses": { "200": { "description": "New config" }, "422": { "description": "Unknown key or wrong type" } }
+      }
+    },
+    "/api/v1/watchlists/sanctions": {
+      "get": { "tags": ["Configuration & watchlists"], "summary": "Sanctions list", "responses": { "200": { "description": "List" } } },
+      "post": {
+        "tags": ["Configuration & watchlists"], "summary": "Add sanctions entry",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["list_id", "name"], "properties": { "list_id": { "type": "string" }, "name": { "type": "string" }, "alias": { "type": "string" }, "dob": { "type": "string" }, "nationality": { "type": "string" }, "program": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Added" } }
+      }
+    },
+    "/api/v1/watchlists/sanctions/{listId}": {
+      "delete": { "tags": ["Configuration & watchlists"], "summary": "Remove sanctions entry", "parameters": [{ "name": "listId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Removed" } } }
+    },
+    "/api/v1/watchlists/peps": {
+      "get": { "tags": ["Configuration & watchlists"], "summary": "PEP list", "responses": { "200": { "description": "List" } } },
+      "post": {
+        "tags": ["Configuration & watchlists"], "summary": "Add PEP entry",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["pep_id", "name", "category"], "properties": { "pep_id": { "type": "string" }, "name": { "type": "string" }, "dob": { "type": "string" }, "position": { "type": "string" }, "category": { "type": "string", "enum": ["DOMESTIC", "RCA"] } } } } } },
+        "responses": { "201": { "description": "Added" } }
+      }
+    },
+    "/api/v1/watchlists/peps/{pepId}": {
+      "delete": { "tags": ["Configuration & watchlists"], "summary": "Remove PEP entry", "parameters": [{ "name": "pepId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Removed" } } }
+    },
+    "/api/v1/watchlists/rescreen": {
+      "post": { "tags": ["Configuration & watchlists"], "summary": "Re-screen open cases (after a watchlist/config change)", "responses": { "200": { "description": "{ rescreened, changed, cases }" } } }
+    },
+
+    "/mock/core-banking/accounts": {
+      "post": {
+        "tags": ["Simulated services"], "summary": "Mock core banking: open account (service key only)",
+        "security": [{ "serviceKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "application_id": { "type": "string" }, "full_name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "{ customer_id, account_number }" }, "403": { "description": "Missing/wrong x-service-key" } }
+      }
+    },
+    "/health": { "get": { "tags": ["Simulated services"], "summary": "Health check", "security": [], "responses": { "200": { "description": "ok" } } } }
+  }
+}

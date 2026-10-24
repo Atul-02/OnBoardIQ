@@ -278,4 +278,9 @@ onboardIq/
             └── auth.jsx      login state and role guard
 ```
 
+## Live demo
+- App: https://on-board-iq-self.vercel.app
+- API docs: https://onboardiq-api-7utc.onrender.com/api-docs
+- Demo logins (password `Password@123`): applicant1, officer1, checker1, supervisor1
+
 More detail: [Backend/server/README.md](Backend/server/README.md) and [Frontend/client/README.md](Frontend/client/README.md).
